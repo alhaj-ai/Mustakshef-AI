@@ -22,9 +22,9 @@ st.set_page_config(
 # -----------------------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
-BOY_IMG = os.path.join(ASSETS_DIR, "boy.png")
-GIRL_IMG = os.path.join(ASSETS_DIR, "girl.png")
-KIDS_IMG = os.path.join(ASSETS_DIR, "kids.png")
+BOY_IMG = os.path.join(ASSETS_DIR, "avatar_adventurer.png")
+GIRL_IMG = os.path.join(ASSETS_DIR, "avatar_scholar.png")
+KIDS_IMG = os.path.join(ASSETS_DIR, "hero_illustration.png")
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 

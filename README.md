@@ -55,7 +55,7 @@
 | الواجهة | التقنية | المزايا | مسار التشغيل |
 |---|---|---|---|
 | **الواجهة الحديثة (Web App)** | **Next.js 14 + Tailwind + TypeScript** | دعم كامل لخط ثمانية (Thmanyah Bold)، حركات تفاعلية، بطاقات هجاء ناطقة، احتفاليات صوتية وبصرية. | `cd frontend && npm run dev` |
-| **واجهة الاستكشاف السريع (Explorer)** | **Streamlit Python** | تشغيل فوري بدون تثبيت Node.js، واجهة بسيطة ومحببة للأطفال، تدعم الكاميرا والرفع المباشر. | `cd streamlit_app && streamlit run app.py` |
+| **واجهة الاستكشاف السريع (Explorer)** | **Streamlit Python** | تشغيل فوري بدون تثبيت Node.js، واجهة بسيطة ومحببة للأطفال، تدعم الكاميرا والرفع المباشر. | `cd interactive_explorer && streamlit run explorer_app.py` |
 
 ---
 
@@ -108,9 +108,9 @@ npm run dev
 ### 3️⃣ الخيار الثاني: تشغيل واجهة الاستكشاف (Streamlit App)
 
 ```bash
-cd streamlit_app
+cd interactive_explorer
 pip install -r requirements.txt
-streamlit run app.py
+streamlit run explorer_app.py
 ```
 
 افتح المتصفح على: `http://localhost:8501`

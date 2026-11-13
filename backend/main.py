@@ -30,7 +30,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 log = logging.getLogger("mustakshef-ai")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "models", "best.pt")
+_PRIMARY_MODEL = os.path.join(BASE_DIR, "models", "yolov8_segmentation_kids.pt")
+_FALLBACK_MODEL = os.path.join(BASE_DIR, "models", "best.pt")
+MODEL_PATH = _PRIMARY_MODEL if os.path.exists(_PRIMARY_MODEL) else _FALLBACK_MODEL
 FONT_PATH = os.path.join(BASE_DIR, "fonts", "NotoNaskhArabic-Regular.ttf")
 
 DEFAULT_VOICE = "ar-SA-ZariyahNeural"

@@ -258,7 +258,7 @@ export default function MustakshefApp() {
 
             <div className="relative w-full h-48 md:h-64 rounded-2xl overflow-hidden mb-8 border-2 border-emerald-100">
               <Image
-                src="/assets/kids.png"
+                src="/assets/hero_illustration.png"
                 alt="الأطفال والمستكشف"
                 fill
                 className="object-cover"
@@ -298,7 +298,7 @@ export default function MustakshefApp() {
               >
                 <div className="relative w-36 h-36 mb-4">
                   <Image
-                    src="/assets/boy.png"
+                    src="/assets/avatar_adventurer.png"
                     alt="البطل المغامر"
                     fill
                     className="object-contain"
@@ -321,7 +321,7 @@ export default function MustakshefApp() {
               >
                 <div className="relative w-36 h-36 mb-4">
                   <Image
-                    src="/assets/girl.png"
+                    src="/assets/avatar_scholar.png"
                     alt="البطلة الذكية"
                     fill
                     className="object-contain"
@@ -431,7 +431,7 @@ export default function MustakshefApp() {
                     key={idx}
                     onClick={() => {
                       // Demo quick send
-                      sendImageToBackend('/assets/kids.png');
+                      sendImageToBackend('/assets/hero_illustration.png');
                     }}
                     className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-900 px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
                   >
