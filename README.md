@@ -1,18 +1,17 @@
-# 🌟 المستكشف | Mustakshef-AI
+# المستكشف | Mustakshef-AI
 
 <div align="center">
 
-![Next.js](https://img.shields.io/badge/Next.js-14_App_Router-black?style=for-the-badge&logo=next.js&logoColor=white)
+[![CI](https://img.shields.io/github/actions/workflow/status/alhaj-ai/Mustakshef-AI/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/alhaj-ai/Mustakshef-AI/actions)
+[![Release](https://img.shields.io/github/v/release/alhaj-ai/Mustakshef-AI?style=for-the-badge&color=0F766E)](https://github.com/alhaj-ai/Mustakshef-AI/releases)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=for-the-badge&logo=fastapi&logoColor=white)
-![YOLOv8](https://img.shields.io/badge/YOLOv8-Segmentation-ff9900?style=for-the-badge&logo=yolo&logoColor=white)
-![Edge TTS](https://img.shields.io/badge/Voice_TTS-Saudi_Neural-f59e0b?style=for-the-badge)
-![TailwindCSS](https://img.shields.io/badge/Tailwind-CSS_v3-38bdf8?style=for-the-badge&logo=tailwindcss&logoColor=white)
+![YOLOv8](https://img.shields.io/badge/YOLOv8-Segmentation-ff9900?style=for-the-badge)
+![Next.js](https://img.shields.io/badge/Next.js-14_App_Router-black?style=for-the-badge&logo=nextdotjs&logoColor=white)
+![Edge TTS](https://img.shields.io/badge/Edge_TTS-Saudi_Neural-f59e0b?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-emerald?style=for-the-badge)
 
-**تطبيق تفاعلي للتعرف البصري على الأشياء وتقسيمها لحظياً بنماذج YOLOv8، مع نطق بالصوت العربي ومحادثة تعليمية للأطفال**  
-*Interactive Computer Vision & Arabic Audio Learning App: Real-time YOLOv8 Object Segmentation & Phonics*
-
-[🎬 العرض العملي والأرقام](#-العرض-التجريبي-وأرقام-القياس) • [📸 معرض الشاشات](#-معرض-الشاشات) • [🧠 المعمارية](#-المعمارية-التقنية) • [🚀 التشغيل](#-دليل-التشغيل)
+**تطبيق تفاعلي للتعرف البصري على الأشياء وتقسيمها عبر `YOLOv8-seg` عبر 82 فئة عربية، مع تهجئة الحروف ونطق عصبي عربي عبر `Edge TTS`**  
+*Interactive Computer Vision & Arabic Audio Learning System: YOLOv8 Instance Segmentation, RTL Visual Overlay & Neural Phonics*
 
 </div>
 
@@ -20,123 +19,110 @@
 
 ## 📌 ما يفعله النظام (System Capabilities)
 
-يقوم **المستكشف (Mustakshef-AI)** بدمج الرؤية الحاسوبية ومعالجة الصوت لتعليم الأطفال استكشاف البيئة المحيطة:
+يدمج **المستكشف (`Mustakshef-AI`)** نموذج تقسيم بصري (`YOLOv8-seg`) مع محرك نطق وتفكيك هجائي عربي عبر واجهتي **Next.js 14** و**Streamlit**:
 
-1. **التعرف وتجزئة الكائنات لحظياً (YOLOv8 Segmentation)**: كشف الأجسام المحيطة (فواكه، ألعاب، أدوات، كتب) واستخراج قناع التجزئة الدقيق لكل مجسم في أقل من 40ms.
-2. **النطق الصوتي العربي الفصيح (Saudi Voice Synthesis)**: نطق اسم المجسم المكتشف بوضوح مع تصحيح التشكيل ومخارج الحروف.
-3. **التفكيك الهجائي التفاعلي (Interactive Phonics Cards)**: تجزئة الكلمة تلقائياً إلى بطاقات أحرف قابلة للنقر، ليستمع الطفل لصوت كل حرف وحركته منفرداً.
-4. **المحادثة والاستكشاف التكيفي**: روبوت محادثة لطيف ومبسط يجيب عن تساؤلات الطفل حول المجسم المكتشف (مثال: "ما هي فوائد التفاح؟").
+1. **تجزئة وتصنيف المجسمات عبر 82 فئة عربية (`YOLOv8-seg`)**: قصّ تلقائي لمنتصف الإطار، استدلال بالذكاء الاصطناعي (`task="segment"`, `conf=0.25`)، ورسم قناع التجزئة مع شارة اسم عربية مضبوطة بالاتجاه (`arabic_reshaper` + `python-bidi` + خط `NotoNaskhArabic-Regular.ttf`).
+2. **حالة صادقة عند غياب الاكتشاف**: إذا لم يتجاوز أي جسم حد الثقة، يرجع الخادم `detected: false` مع حفظ الإطار المعلّم بدلاً من افتراض تصنيف وهمي.
+3. **التهجئة والتوليد الصوتي المتوازي (`Arabic Phonics + Edge TTS`)**: إزالة التشكيل من الكلمة (`spell_word`), ربط كل حرف باسمه العربي الكامل (`ARABIC_LETTER_NAMES`)، وتوليد المقاطع الصوتية للكلمة والحروف بالتوازي (`asyncio.gather`) عبر أصوات `ar-SA-ZariyahNeural` و`ar-SA-HamedNeural` مع مسار احتياطي عبر HTTP TTS.
+4. **واجهتا عرض متكاملتان**: واجهة أمامية بـ **Next.js 14** (`frontend/src/app/page.tsx`) تدعم الكاميرا المباشرة ورفع الصور وحالات التحميل والخطأ والانتقال لوضع معاينة تعليمية مستقل عند توقف الخادم، إلى جانب تطبيق **Streamlit** (`interactive_explorer/explorer_app.py`).
 
 ---
 
-## 🎬 العرض التجريبي وأرقام القياس (Demo & Benchmarks)
+## 🎬 واجهة API والاختبارات
 
-### 1. استخراج الأجسام وتجزئتها برمجياً (Inference API Demo):
+### 1. نقطة نهاية التحليل البصري والصوتي (`POST /segment`):
 
 ```bash
-# إرسال صورة للكشف عن الكائنات وتقسيمها وتوليد الصوت العربي
-curl -X POST "http://localhost:8000/api/detect" \
-  -F "image=@apple_sample.jpg"
+curl -X POST "http://localhost:8000/segment?voice=ar-SA-ZariyahNeural" \
+  -F "file=@sample.jpg"
 ```
 
-**مخرجات الاستجابة (Detection Output):**
+**بنية الاستجابة الفعلية (`DetectionResponse`):**
 ```json
 {
-  "detected_objects": [
-    {
-      "label_ar": "تُفَّاحَة",
-      "label_en": "apple",
-      "confidence": 0.942,
-      "bounding_box": [120, 85, 340, 310],
-      "phonics_breakdown": ["تُـ", "فَّـ", "ا", "حَـ", "ة"],
-      "audio_tts_url": "/static/audio/apple_ar.mp3"
-    }
+  "detected": true,
+  "label_ar": "تفاحة",
+  "label_en": "Apple",
+  "confidence": 0.92,
+  "inference_ms": 24.1,
+  "spelling": ["ت", "ف", "ا", "ح", "ة"],
+  "spelling_details": [
+    { "letter": "ت", "name": "تاء", "audio": "data:audio/mp3;base64,..." }
   ],
-  "metrics": {
-    "inference_time_ms": 31.5,
-    "segmentation_mask_area": "42.8%"
-  }
+  "annotated_image": "data:image/jpeg;base64,...",
+  "audio_word": "data:audio/mp3;base64,..."
 }
 ```
 
+### 2. نقاط النهاية المتاحة:
+
+| المسار | الطريقة | الوظيفة |
+| :--- | :--- | :--- |
+| `/` | `GET` | معلومات الخدمة وعدد الفئات (`82`) |
+| `/health` | `GET` | فحص جاهزية الخادم والنموذج (`healthy` / `degraded`) |
+| `/labels` | `GET` | استعراض جدول الفئات الـ 82 بالإنجليزية والعربية |
+| `/segment`, `/api/segment` | `POST` | قص الصورة وتشغيل `YOLOv8-seg` وتوليد التهجئة والصوت |
+| `/api/tts` | `GET` | توليد مقطع MP3 لصوت عربي أو حرف وفق قائمة الأصوات المعتمدة |
+
+### 3. التشغيل والتحقق الآلي (`pytest` + `Next.js Build`):
+
+```bash
+# تشغيل اختبارات الخادم والتهجئة والتحقق من المدخلات
+pytest -v backend/tests
+
+# التحقق من أنواع TypeScript وبناء واجهة Next.js
+cd frontend && npm run lint && npm run build
+```
+
 ---
 
-### 2. نتائج القياس الفعلي (Benchmarks):
-
-تم اختبار سرعة النماذج ودقة التجزئة عبر كروت الشاشة المختلفة والمعالجات المحلية:
-
-| المعيار (Metric) | نماذج الكشف التقليدية (YOLO Bounding Box) | المستكشف (YOLOv8 Segmentation) | التحسين المحقق |
-|---|---|---|---|
-| **نوع التحديد البصري** | مربع إحاطة تقليدي (Box) | **تجزئة دقيقة لأطراف الكائن (Mask)** | **عزل بصري كامل للمجسم** |
-| **زمن استدلال الصورة (Latency)** | 45ms | **31.5ms (GPU RTX / T4)** | **معالجة لحظية بمعدل 30+ FPS** |
-| **دقة التجزئة (mAP 50-95)** | 71.2% | **89.4% على كائنات البيئة اليومية** | **تعرف موثوق في زوايا إضاءة مختلفة** |
-| **زمن توليد الصوت العربي (TTS)** | 1,200ms | **~310ms للكلمة الواحدة** | **استجابة فورية للأطفال** |
-
----
-
-## 📸 معرض الشاشات (Visual Showcase)
+## 📸 معرض الواجهة الفعلي (Screenshots)
 
 <div align="center">
 
-### 1. شاشة الكاميرا والتجزئة البصرية المباشرة
-![شاشة الاستكشاف](screenshots/explorer_view.png)
+| الشاشة الترحيبية | اختيار الشخصية والصوت |
+| :---: | :---: |
+| ![الشاشة الترحيبية](screenshots/welcome.png) | ![اختيار الشخصية](screenshots/avatar.png) |
 
-### 2. بطاقات الهجاء التفاعلية والنطق الصوتي
-![بطاقات الهجاء](screenshots/phonics_cards.png)
-
-### 3. تقرير الاستكشاف وحصيلة الكلمات المكتسبة
-![تقرير الحصيلة](screenshots/discovery_summary.png)
+| التصوير ورفع الصورة | نتائج التجزئة والهجاء |
+| :---: | :---: |
+| ![التقاط الصورة](screenshots/capture.png) | ![نتائج التعلم](screenshots/learning.png) |
 
 </div>
 
 ---
 
-## 🧠 المعمارية التقنية (Architecture)
-
-```text
-       [ صورة الكاميرا / إدخال الطفل ]
-                       │
-                       ▼
-    [ 1. معالجة الصور والتجزئة: YOLOv8-seg ]
-      (استخراج الأقنعة والمجسمات في 31ms)
-                       │
-                       ▼
-    [ 2. محرك التشكيل والنطق: Arabic Phonics ]
-    (تفكيك الكلمة لحروف + توليد الصوت العصبي)
-                       │
-                       ▼
-    [ 3. المساعد التفاعلي: Kid Chat Agent ]
-       (حوار مبسط وآمن وممتع للأطفال)
-                       │
-                       ▼
-    [ 4. واجهة العرض: Next.js 14 App Router ]
-```
-
----
-
 ## 🚀 دليل التشغيل (Quick Start)
 
-### 1️⃣ واجهة المستخدم (Next.js 14)
+### 1. خادم الذكاء الاصطناعي (`FastAPI Backend`)
+
+يحمّل الخادم أوزان النموذج تلقائياً عند التشغيل من إصدار [`v1.0.0`](https://github.com/alhaj-ai/Mustakshef-AI/releases/tag/v1.0.0) إذا لم تكن موجودة محلياً في `backend/models/best.pt`:
+
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\activate   # على Linux/macOS: source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### 2. الواجهة الأمامية (`Next.js 14`)
 
 ```bash
 cd frontend
 npm install
+# اختياري: ضبط NEXT_PUBLIC_BACKEND_URL إذا كان الخادم على مضيف آخر (الافتراضي http://localhost:8000)
 npm run dev
 ```
 
 الرابط: `http://localhost:3000`
 
----
-
-### 2️⃣ خادم الذكاء الاصطناعي (FastAPI Backend)
+### 3. البديل التفاعلي عبر Streamlit (اختياري)
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate  # على ويندوز: .venv\Scripts\activate
-
+cd interactive_explorer
 pip install -r requirements.txt
-python -m uvicorn main:app --port 8000 --reload
+streamlit run explorer_app.py
 ```
 
 ---
@@ -147,6 +133,6 @@ python -m uvicorn main:app --port 8000 --reload
 
 <div align="center">
 
-**المستكشف (Mustakshef-AI)** — تصميم وهندسة: **محمد الحاج (Mohammed AL-Haj)** © 2026
+**المستكشف (`Mustakshef-AI`)** — تصميم وهندسة: **محمد الحاج (`Mohammed AL-Haj`)** © 2026
 
 </div>

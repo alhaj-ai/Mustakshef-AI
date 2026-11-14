@@ -8,12 +8,13 @@ import base64
 import io
 import logging
 import os
-from functools import lru_cache
+import threading
+import time
+from contextlib import asynccontextmanager
 from typing import List, Optional
 
 import arabic_reshaper
 import edge_tts
-import numpy as np
 import requests
 from bidi.algorithm import get_display
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
@@ -21,7 +22,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel
-from ultralytics import YOLO
 
 # ----------------------------------------------------------------------
 # Logging & Setup
@@ -37,6 +37,8 @@ FONT_PATH = os.path.join(BASE_DIR, "fonts", "NotoNaskhArabic-Regular.ttf")
 
 DEFAULT_VOICE = "ar-SA-ZariyahNeural"
 MALE_VOICE = "ar-SA-HamedNeural"
+ALLOWED_VOICES = {DEFAULT_VOICE, MALE_VOICE}
+MAX_IMAGE_BYTES = int(os.getenv("MAX_IMAGE_BYTES", str(10 * 1024 * 1024)))
 
 # ----------------------------------------------------------------------
 # 82 Pre-translated Native Arabic Classes
@@ -148,32 +150,58 @@ ARABIC_LETTER_NAMES = {
 _DIACRITICS = set("ًٌٍَُِّْٰٱؐؑؒؓؔؕؖؗ")
 
 # ----------------------------------------------------------------------
-# Model Initialization & Weights Downloader
+# Model Initialization & Weights Downloader (Lazy / Lifespan Safe)
 # ----------------------------------------------------------------------
 MODEL_RELEASE_URL = "https://github.com/alhaj-ai/Mustakshef-AI/releases/download/v1.0.0/best.pt"
+_model_lock = threading.Lock()
+yolo_model = None
 
-if not os.path.exists(MODEL_PATH):
+
+def ensure_model_weights() -> bool:
+    """Download model weights from the release asset if enabled and missing."""
+    if os.path.exists(MODEL_PATH):
+        return True
+    if os.getenv("AUTO_DOWNLOAD_MODEL", "1") != "1":
+        return False
     log.info(f"YOLO weights not found locally at {MODEL_PATH}. Fetching from official release...")
     try:
         os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
         resp = requests.get(MODEL_RELEASE_URL, stream=True, timeout=120)
         if resp.status_code == 200:
-            with open(MODEL_PATH, "wb") as f:
+            tmp_path = f"{MODEL_PATH}.part"
+            with open(tmp_path, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=16384):
-                    f.write(chunk)
+                    if chunk:
+                        f.write(chunk)
+            os.replace(tmp_path, MODEL_PATH)
             log.info("Model weights downloaded successfully.")
-        else:
-            log.warning(f"Weights download returned status {resp.status_code}")
+            return True
+        log.warning(f"Weights download returned status {resp.status_code}")
     except Exception as e:
         log.error(f"Failed to auto-download model weights: {e}")
+    return False
 
-try:
-    log.info(f"Loading custom YOLO model from {MODEL_PATH}")
-    yolo_model = YOLO(MODEL_PATH)
-    log.info(f"YOLO Model loaded successfully: {len(yolo_model.names)} classes detected.")
-except Exception as e:
-    log.error(f"Failed to load YOLO model: {e}")
-    yolo_model = None
+
+def get_yolo_model():
+    """Return loaded YOLO model, initializing lazily on first startup/use."""
+    global yolo_model
+    if yolo_model is not None:
+        return yolo_model
+    with _model_lock:
+        if yolo_model is not None:
+            return yolo_model
+        if not ensure_model_weights():
+            return None
+        try:
+            from ultralytics import YOLO
+
+            log.info(f"Loading custom YOLO model from {MODEL_PATH}")
+            yolo_model = YOLO(MODEL_PATH)
+            log.info(f"YOLO Model loaded successfully: {len(yolo_model.names)} classes detected.")
+        except Exception as e:
+            log.error(f"Failed to load YOLO model: {e}")
+            yolo_model = None
+    return yolo_model
 
 # Arabic Font
 try:
@@ -185,8 +213,17 @@ except Exception:
     AR_FONT_SM = AR_FONT
 
 # ----------------------------------------------------------------------
-# TTS Helpers
+# TTS & Validation Helpers
 # ----------------------------------------------------------------------
+def validate_voice(voice: str) -> str:
+    if voice not in ALLOWED_VOICES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported voice '{voice}'. Allowed voices: {sorted(ALLOWED_VOICES)}",
+        )
+    return voice
+
+
 def spoken_form(text: str) -> str:
     stripped = text.strip()
     if len(stripped) == 1 and stripped in ARABIC_LETTER_NAMES:
@@ -230,7 +267,7 @@ def bytes_to_data_uri(audio_bytes: Optional[bytes]) -> Optional[str]:
 
 def center_square_crop(image: Image.Image, guide_ratio: float = 0.75) -> Image.Image:
     w, h = image.size
-    side = int(min(w, h) * guide_ratio)
+    side = max(1, int(min(w, h) * guide_ratio))
     left = (w - side) // 2
     top = (h - side) // 2
     return image.crop((left, top, left + side, top + side))
@@ -245,16 +282,24 @@ def render_arabic_text(text: str) -> str:
 # ----------------------------------------------------------------------
 # FastAPI App & Endpoints
 # ----------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    get_yolo_model()
+    yield
+
+
 app = FastAPI(
     title="المستكشف الذكي | Mustakshef-AI API",
     description="Interactive Computer Vision & Neural Audio Educational Engine for Kids",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
+_cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials="*" not in _cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -272,24 +317,30 @@ def root():
 
 @app.get("/health")
 def health():
+    model = yolo_model
     return {
-        "status": "healthy",
-        "yolo_ready": yolo_model is not None,
-        "classes": len(yolo_model.names) if yolo_model else 0
+        "status": "healthy" if model is not None else "degraded",
+        "yolo_ready": model is not None,
+        "classes": len(model.names) if model else 0
     }
 
 @app.get("/labels")
 def labels():
+    model = yolo_model
     return {
         "classes": [
             {"id": k, "label_en": v, "label_ar": CLASS_NAMES_AR.get(v, v)}
-            for k, v in (yolo_model.names.items() if yolo_model else {}.items())
+            for k, v in (model.names.items() if model else {}.items())
         ]
     }
 
 @app.get("/api/tts")
-async def tts_endpoint(text: str = Query(..., description="Arabic text or letter to synthesize"), voice: str = DEFAULT_VOICE):
-    audio_bytes = await generate_speech_bytes(text, voice)
+async def tts_endpoint(
+    text: str = Query(..., min_length=1, description="Arabic text or letter to synthesize"),
+    voice: str = DEFAULT_VOICE,
+):
+    validated_voice = validate_voice(voice)
+    audio_bytes = await generate_speech_bytes(text, validated_voice)
     if not audio_bytes:
         raise HTTPException(status_code=500, detail="تعذر توليد المقطع الصوتي")
     return Response(content=audio_bytes, media_type="audio/mp3")
@@ -300,9 +351,11 @@ class LetterSpelling(BaseModel):
     audio: Optional[str]
 
 class DetectionResponse(BaseModel):
+    detected: bool
     label_ar: str
     label_en: str
     confidence: float
+    inference_ms: float
     spelling: List[str]
     spelling_details: List[LetterSpelling]
     annotated_image: str
@@ -311,25 +364,30 @@ class DetectionResponse(BaseModel):
 @app.post("/segment", response_model=DetectionResponse)
 @app.post("/api/segment", response_model=DetectionResponse)
 async def segment_endpoint(file: UploadFile = File(...), voice: str = DEFAULT_VOICE):
-    if not yolo_model:
+    validated_voice = validate_voice(voice)
+    model = get_yolo_model()
+    if not model:
         raise HTTPException(status_code=503, detail="نموذج الذكاء الاصطناعي غير متوفر")
 
     contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="الملف المرفوع فارغ")
+    if len(contents) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="حجم الصورة يتجاوز الحد المسموح")
     try:
         pil_image = Image.open(io.BytesIO(contents)).convert("RGB")
     except Exception:
         raise HTTPException(status_code=400, detail="الملف المرفوع ليس صورة صالحة")
 
-    # Center crop for focus
     cropped = center_square_crop(pil_image)
 
-    # Run YOLO segmentation inference
-    results = yolo_model(cropped, conf=0.25, task="segment")
+    t0 = time.perf_counter()
+    results = await asyncio.to_thread(model, cropped, conf=0.25, task="segment")
+    inference_ms = round((time.perf_counter() - t0) * 1000, 2)
     first_res = results[0]
 
-    label_en = "Object"
-    label_ar = "مجهول"
-    confidence = 0.0
+    plotted_np = first_res.plot(masks=True, boxes=True, labels=False)
+    plotted_img = Image.fromarray(plotted_np)
 
     if len(first_res.boxes) > 0:
         best_box_idx = int(first_res.boxes.conf.argmax().item())
@@ -337,60 +395,70 @@ async def segment_endpoint(file: UploadFile = File(...), voice: str = DEFAULT_VO
         confidence = float(first_res.boxes.conf[best_box_idx].item())
         label_en = first_res.names.get(cls_id, "Object")
         label_ar = CLASS_NAMES_AR.get(label_en, label_en)
+        detected = True
+        badge_text = render_arabic_text(f"{label_ar}  ({int(confidence * 100)}%)")
+        badge_fill = (16, 185, 129, 230)
     else:
-        # Fallback or top guess
-        label_en = "Toy"
-        label_ar = "لعبة"
-        confidence = 0.50
+        detected = False
+        label_en = "Unrecognized"
+        label_ar = "لم يتم التعرف على مجسم واضح"
+        confidence = 0.0
+        badge_text = render_arabic_text("لم يتم التعرف على مجسم واضح")
+        badge_fill = (100, 116, 139, 230)
 
-    # Overlay segmentation mask & Arabic banner
-    plotted_np = first_res.plot(masks=True, boxes=True, labels=False)
-    plotted_img = Image.fromarray(plotted_np)
-    
-    # Draw Arabic Badge
+    # Overlay Arabic RTL pill badge onto segmented image
     draw = ImageDraw.Draw(plotted_img, "RGBA")
-    bidi_label = render_arabic_text(f"{label_ar}  ({int(confidence * 100)}%)")
-    bbox = draw.textbbox((0, 0), bidi_label, font=AR_FONT)
+    bbox = draw.textbbox((0, 0), badge_text, font=AR_FONT)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    
-    # Stylish rounded pill badge
     pad_x, pad_y = 20, 10
     x0, y0 = 20, 20
     x1, y1 = x0 + tw + (pad_x * 2), y0 + th + (pad_y * 2)
-    draw.rounded_rectangle([x0, y0, x1, y1], radius=16, fill=(16, 185, 129, 230), outline=(255, 255, 255, 255), width=2)
-    draw.text((x0 + pad_x, y0 + pad_y - 4), bidi_label, font=AR_FONT, fill=(255, 255, 255, 255))
+    draw.rounded_rectangle([x0, y0, x1, y1], radius=16, fill=badge_fill, outline=(255, 255, 255, 255), width=2)
+    draw.text((x0 + pad_x, y0 + pad_y - 4), badge_text, font=AR_FONT, fill=(255, 255, 255, 255))
 
-    # Convert annotated image to base64
     out_buf = io.BytesIO()
     plotted_img.save(out_buf, format="JPEG", quality=90)
     annotated_b64 = f"data:image/jpeg;base64,{base64.b64encode(out_buf.getvalue()).decode('ascii')}"
 
-    # Generate Audio for Word
-    word_audio_bytes = await generate_speech_bytes(label_ar, voice)
-    audio_word_uri = bytes_to_data_uri(word_audio_bytes)
-
-    # Generate Audio & Details for individual letters
-    letters = spell_word(label_ar)
-    spelling_details = []
-    for char in letters:
-        c_name = ARABIC_LETTER_NAMES.get(char, char)
-        c_audio_bytes = await generate_speech_bytes(char, voice)
-        spelling_details.append(
-            LetterSpelling(
-                letter=char,
-                name=c_name,
-                audio=bytes_to_data_uri(c_audio_bytes)
-            )
+    if not detected:
+        return DetectionResponse(
+            detected=False,
+            label_ar=label_ar,
+            label_en=label_en,
+            confidence=0.0,
+            inference_ms=inference_ms,
+            spelling=[],
+            spelling_details=[],
+            annotated_image=annotated_b64,
+            audio_word=None,
         )
 
+    letters = spell_word(label_ar)
+    audio_tasks = [generate_speech_bytes(label_ar, validated_voice)] + [
+        generate_speech_bytes(char, validated_voice) for char in letters
+    ]
+    audio_results = await asyncio.gather(*audio_tasks)
+    audio_word_uri = bytes_to_data_uri(audio_results[0])
+
+    spelling_details = [
+        LetterSpelling(
+            letter=char,
+            name=ARABIC_LETTER_NAMES.get(char, char),
+            audio=bytes_to_data_uri(c_audio_bytes),
+        )
+        for char, c_audio_bytes in zip(letters, audio_results[1:])
+    ]
+
     return DetectionResponse(
+        detected=True,
         label_ar=label_ar,
         label_en=label_en,
         confidence=confidence,
+        inference_ms=inference_ms,
         spelling=letters,
         spelling_details=spelling_details,
         annotated_image=annotated_b64,
-        audio_word=audio_word_uri
+        audio_word=audio_word_uri,
     )
 
 if __name__ == "__main__":

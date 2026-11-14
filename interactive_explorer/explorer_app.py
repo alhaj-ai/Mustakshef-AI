@@ -208,29 +208,34 @@ elif st.session_state.step == "capture":
                     voice = "ar-SA-HamedNeural" if st.session_state.character == "boy" else "ar-SA-ZariyahNeural"
                     res = requests.post(f"{BACKEND_URL}/segment", files=files, params={"voice": voice}, timeout=30)
                     if res.status_code == 200:
-                        st.session_state.detected_result = res.json()
-                        st.session_state.step = "result"
-                        st.rerun()
+                        data = res.json()
+                        if data.get("detected") is False:
+                            st.warning("لم يظهر مجسم واضح داخل الإطار. قرّب الكائن وحاول مجدداً.")
+                        else:
+                            st.session_state.detected_result = data
+                            st.session_state.step = "result"
+                            st.rerun()
                     else:
-                        st.error(f"خطأ في خادم الذكاء الاصطناعي: {res.text}")
-                except Exception as e:
-                    # Smart Offline Simulation if backend is starting
-                    st.info("⚠️ تم استخدام المحاكي المحلي السريع:")
-                    st.session_state.detected_result = {
-                        "label_ar": "موز",
-                        "label_en": "banana",
-                        "confidence": 0.96,
-                        "spelling": ["م", "و", "ز"],
-                        "spelling_details": [
-                            {"letter": "م", "name": "ميم", "audio": None},
-                            {"letter": "و", "name": "واو", "audio": None},
-                            {"letter": "ز", "name": "زاي", "audio": None}
-                        ],
-                        "annotated_image": None,
-                        "audio_word": None
-                    }
-                    st.session_state.step = "result"
-                    st.rerun()
+                        st.error(f"تعذر تحليل الصورة من الخادم (رمز {res.status_code}): {res.text}")
+                except Exception as exc:
+                    st.error(f"تعذر الاتصال بخادم التحليل ({BACKEND_URL}): {exc}")
+
+    if st.button("عرض معاينة تعليمية بدون خادم", use_container_width=True):
+        st.session_state.detected_result = {
+            "label_ar": "موز",
+            "label_en": "Banana (Offline Preview)",
+            "confidence": 1.0,
+            "spelling": ["م", "و", "ز"],
+            "spelling_details": [
+                {"letter": "م", "name": "ميم", "audio": None},
+                {"letter": "و", "name": "واو", "audio": None},
+                {"letter": "ز", "name": "زاي", "audio": None}
+            ],
+            "annotated_image": None,
+            "audio_word": None
+        }
+        st.session_state.step = "result"
+        st.rerun()
 
     st.write("")
     if st.button("⬅️ تغيير الشخصية"):

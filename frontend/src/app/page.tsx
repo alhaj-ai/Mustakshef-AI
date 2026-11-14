@@ -20,6 +20,8 @@ import {
   ChevronLeft
 } from 'lucide-react';
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000';
+
 interface LetterSpelling {
   letter: string;
   name: string;
@@ -27,26 +29,37 @@ interface LetterSpelling {
 }
 
 interface DetectionResult {
+  detected?: boolean;
   label_ar: string;
   label_en: string;
   confidence: number;
+  inference_ms?: number;
   spelling: string[];
   spelling_details: LetterSpelling[];
   annotated_image: string | null;
   audio_word: string | null;
 }
 
-const PRESET_SAMPLES = [
-  { name: 'موز', en: 'Banana', icon: '🍌', file: '/samples/banana.jpg' },
-  { name: 'تفاحة', en: 'Apple', icon: '🍎', file: '/samples/apple.jpg' },
-  { name: 'كتاب', en: 'Book', icon: '📚', file: '/samples/book.jpg' },
-  { name: 'سيارة لعبة', en: 'Toy Car', icon: '🚗', file: '/samples/car.jpg' },
-];
+const OFFLINE_PREVIEW_SAMPLE: DetectionResult = {
+  detected: true,
+  label_ar: 'موز',
+  label_en: 'Banana (Offline Preview)',
+  confidence: 1.0,
+  spelling: ['م', 'و', 'ز'],
+  spelling_details: [
+    { letter: 'م', name: 'ميم', audio: null },
+    { letter: 'و', name: 'واو', audio: null },
+    { letter: 'ز', name: 'زاي', audio: null },
+  ],
+  annotated_image: null,
+  audio_word: null,
+};
 
 export default function MustakshefApp() {
   const [step, setStep] = useState<'welcome' | 'avatar' | 'capture' | 'learning'>('welcome');
   const [character, setCharacter] = useState<'boy' | 'girl'>('boy');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [result, setResult] = useState<DetectionResult | null>(null);
   const [activeLetterIdx, setActiveLetterIdx] = useState<number | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -132,6 +145,7 @@ export default function MustakshefApp() {
   // Send to FastAPI YOLO endpoint
   const sendImageToBackend = async (dataUri: string, originalFile?: File) => {
     setIsProcessing(true);
+    setErrorMsg(null);
     stopCamera();
 
     const voice = character === 'boy' ? 'ar-SA-HamedNeural' : 'ar-SA-ZariyahNeural';
@@ -141,51 +155,47 @@ export default function MustakshefApp() {
       if (originalFile) {
         formData.append('file', originalFile);
       } else {
-        // convert base64 to blob
         const res = await fetch(dataUri);
         const blob = await res.blob();
         formData.append('file', blob, 'capture.jpg');
       }
 
-      const response = await fetch(`http://localhost:8000/segment?voice=${voice}`, {
+      const response = await fetch(`${BACKEND_URL}/segment?voice=${encodeURIComponent(voice)}`, {
         method: 'POST',
         body: formData,
       });
 
-      if (response.ok) {
-        const data: DetectionResult = await response.json();
-        setResult(data);
-        setStep('learning');
-        triggerConfetti();
-        if (data.audio_word) {
-          playAudio(data.audio_word);
-        }
-      } else {
-        throw new Error('Backend failed');
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(`HTTP ${response.status}: ${detail}`);
+      }
+
+      const data: DetectionResult = await response.json();
+      if (data.detected === false) {
+        setErrorMsg('لم يتم التعرف على مجسم واضح داخل الإطار. قرّب الكائن وحاول مجدداً أو حسّن الإضاءة.');
+        return;
+      }
+
+      setResult(data);
+      setStep('learning');
+      triggerConfetti();
+      if (data.audio_word) {
+        playAudio(data.audio_word);
       }
     } catch {
-      // Smart Fallback Demo Mode
-      setTimeout(() => {
-        const fallbackData: DetectionResult = {
-          label_ar: 'مَوْز',
-          label_en: 'Banana',
-          confidence: 0.96,
-          spelling: ['م', 'و', 'ز'],
-          spelling_details: [
-            { letter: 'م', name: 'ميم', audio: null },
-            { letter: 'و', name: 'واو', audio: null },
-            { letter: 'ز', name: 'زاي', audio: null },
-          ],
-          annotated_image: dataUri,
-          audio_word: null,
-        };
-        setResult(fallbackData);
-        setStep('learning');
-        triggerConfetti();
-      }, 900);
+      setErrorMsg(`تعذر الاتصال بخادم الذكاء الاصطناعي (${BACKEND_URL}). تأكد من تشغيل الخادم ثم أعد المحاولة.`);
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const openOfflinePreview = () => {
+    setErrorMsg(null);
+    setResult({
+      ...OFFLINE_PREVIEW_SAMPLE,
+      annotated_image: capturedPreview || '/assets/hero_illustration.png',
+    });
+    setStep('learning');
   };
 
   // Audio Player
@@ -392,6 +402,42 @@ export default function MustakshefApp() {
               </div>
             </div>
 
+            {isProcessing && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="mb-4 rounded-2xl bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm font-bold text-emerald-800 animate-pulse"
+              >
+                جاري تشغيل نموذج YOLOv8 وتوليد النطق العربي...
+              </div>
+            )}
+
+            {errorMsg && (
+              <div
+                role="alert"
+                className="mb-4 rounded-2xl bg-rose-50 border border-rose-200 px-4 py-3 text-sm font-bold text-rose-800 flex flex-col gap-3"
+              >
+                <span>{errorMsg}</span>
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => {
+                      setErrorMsg(null);
+                      startCamera();
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold"
+                  >
+                    إعادة المحاولة
+                  </button>
+                  <button
+                    onClick={openOfflinePreview}
+                    className="px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold"
+                  >
+                    عرض معاينة تعليمية بدون خادم
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row gap-4 mb-6">
               <button
@@ -400,13 +446,13 @@ export default function MustakshefApp() {
                 className="flex-1 py-3.5 px-6 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-700 hover:to-teal-600 text-white font-black text-lg shadow-md shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <Camera className="w-5 h-5" />
-                <span>التقاط واستكشاف 🔍</span>
+                <span>{isProcessing ? 'جاري التحليل...' : 'التقاط واستكشاف 📸'}</span>
               </button>
 
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isProcessing}
-                className="py-3.5 px-6 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-base transition-all flex items-center justify-center gap-2"
+                className="py-3.5 px-6 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-base transition-all flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <Upload className="w-5 h-5" />
                 <span>رفع صورة من الجهاز</span>
@@ -420,26 +466,15 @@ export default function MustakshefApp() {
               />
             </div>
 
-            {/* Sample Items for Quick Testing */}
+            {/* Interactive Offline Curriculum Preview */}
             <div className="pt-4 border-t border-slate-100">
-              <span className="text-xs text-slate-500 font-bold block mb-3">
-                أو جرب مجسماً جاهزاً بنقرة واحدة:
-              </span>
-              <div className="flex items-center justify-center gap-2 flex-wrap">
-                {PRESET_SAMPLES.map((sample, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      // Demo quick send
-                      sendImageToBackend('/assets/hero_illustration.png');
-                    }}
-                    className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-900 px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
-                  >
-                    <span>{sample.icon}</span>
-                    <span>{sample.name}</span>
-                  </button>
-                ))}
-              </div>
+              <button
+                onClick={openOfflinePreview}
+                disabled={isProcessing}
+                className="inline-flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-900 px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+              >
+                <span>معاينة مثال هجائي تفاعلي (وضع تجريبي)</span>
+              </button>
             </div>
           </div>
         )}
